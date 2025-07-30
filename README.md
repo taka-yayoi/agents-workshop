@@ -18,9 +18,7 @@
 #### 1.2 LLMとの統合 [AI Playground]
 - **ツールとLLMの組み合わせ**  
   - Databricks AI PlaygroundでSQL/Pythonツールと大規模言語モデル（LLM）を組み合わせます。  
-  - モデル: Meta Llama 3.3 70B
-  - ツール: labuser##_##_vocareum_com.agents.*
-  - バックアップツール: agents_lab.product.*（自分のツールが見つからない場合はこちらを使用）
+  - モデル: Claude 3.7 Sonnet
 
 #### 1.3 エージェントのテスト [AI Playground]
 - **システムプロンプト**: すべての会社方針が満たされるまでツールを呼び出してください。
@@ -65,7 +63,6 @@
 ---
 
 ### 次のステップ
-- **ラボのフィードバックをお願いします**: 改善のためにぜひ[アンケート](https://www.surveymonkey.com/r/ZNW8KT7)にご協力ください。 
 - **さらなるツールの活用**: API、高度なPython関数、追加のSQLエンドポイントでエージェントを拡張しましょう。  
 - **本番展開**: 継続的インテグレーション/デリバリー（CI/CD）を導入し、MLflowでパフォーマンスを監視、モデルバージョンを管理しましょう。
 
