@@ -19,6 +19,11 @@
 
 # COMMAND ----------
 
+# ウィジェットをクリア
+dbutils.widgets.removeAll()
+
+# COMMAND ----------
+
 # DBTITLE 1,ライブラリのインストール
 # MAGIC %pip install -qqqq -U -r requirements.txt
 # MAGIC # パッケージをPython環境にロードするために再起動します
@@ -30,22 +35,28 @@
 from databricks.sdk import WorkspaceClient
 import yaml
 import os
+import re
 
 # ワークスペースクライアントを使用して現在のユーザーに関する情報を取得
 w = WorkspaceClient()
-#user_email = w.current_user.me().display_name
-#username = user_email.split("@")[0]
+user_email = w.current_user.me().emails[0].value
+username = user_email.split('@')[0]
+username = re.sub(r'[^a-zA-Z0-9_]', '_', username) # 特殊文字をアンダースコアに置換
 
 # カタログとスキーマを指定します
-#catalog_name = f"{username}"
-catalog_name = "takaakiyayoi_catalog"
-schema_name = "agents_lab"
+catalog_name = "handson_catalog"
+system_schema_name = "agents_lab" # データを格納しているスキーマ
+user_schema_name = f"agents_lab_{username}"
+
+print("あなたのカタログは:", catalog_name)
+print("あなたのスキーマは:", user_schema_name)
 
 # SQL/Python関数を作成する際にこれらの値を参照できるようにします
 dbutils.widgets.text("catalog_name", defaultValue=catalog_name, label="Catalog Name")
-dbutils.widgets.text("schema_name", defaultValue=schema_name, label="Schema Name")
+dbutils.widgets.text("system_schema_name", defaultValue=system_schema_name, label="System Schema Name")
+dbutils.widgets.text("user_schema_name", defaultValue=user_schema_name, label="User Schema Name")
 
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog_name}.{schema_name}")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog_name}.{user_schema_name}")
 
 # COMMAND ----------
 
@@ -72,7 +83,7 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog_name}.{schema_name}")
 # MAGIC   issue_category, 
 # MAGIC   issue_description, 
 # MAGIC   name
-# MAGIC FROM IDENTIFIER(:catalog_name || '.' || :schema_name || '.cust_service_data')
+# MAGIC FROM IDENTIFIER(:catalog_name || '.' || :system_schema_name || '.cust_service_data')
 # MAGIC -- インタラクションの日付と時刻で結果を降順に並べ替え
 # MAGIC ORDER BY date_time DESC
 # MAGIC -- 結果を最新のインタラクションに制限
@@ -82,14 +93,14 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog_name}.{schema_name}")
 
 # MAGIC %sql
 # MAGIC USE CATALOG IDENTIFIER(:catalog_name);
-# MAGIC USE SCHEMA IDENTIFIER(:schema_name)
+# MAGIC USE SCHEMA IDENTIFIER(:system_schema_name)
 
 # COMMAND ----------
 
 # DBTITLE 1,Unity Catalogに登録される関数を作成
 # MAGIC %sql
 # MAGIC CREATE OR REPLACE FUNCTION 
-# MAGIC   IDENTIFIER(:catalog_name || '.' || :schema_name || '.get_latest_return')()
+# MAGIC   IDENTIFIER(:catalog_name || '.' || :user_schema_name || '.get_latest_return')()
 # MAGIC RETURNS TABLE(purchase_date DATE, issue_category STRING, issue_description STRING, name STRING)
 # MAGIC COMMENT '最新のカスタマーサービス対応（返品など）を返します。'
 # MAGIC RETURN (
@@ -107,7 +118,7 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog_name}.{schema_name}")
 
 # DBTITLE 1,最新の返品を取得するために関数呼び出しをテスト
 # MAGIC %sql
-# MAGIC select * from IDENTIFIER(:catalog_name || '.' || :schema_name || '.get_latest_return')()
+# MAGIC select * from IDENTIFIER(:catalog_name || '.' || :user_schema_name || '.get_latest_return')()
 
 # COMMAND ----------
 
@@ -125,7 +136,7 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog_name}.{schema_name}")
 # DBTITLE 1,返品ポリシーを取得する関数の呼び出し
 # MAGIC %sql
 # MAGIC CREATE OR REPLACE FUNCTION
-# MAGIC   IDENTIFIER(:catalog_name || '.' || :schema_name || '.get_return_policy')()
+# MAGIC   IDENTIFIER(:catalog_name || '.' || :user_schema_name || '.get_return_policy')()
 # MAGIC RETURNS TABLE (
 # MAGIC   policy           STRING,
 # MAGIC   policy_details   STRING,
@@ -147,7 +158,7 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog_name}.{schema_name}")
 
 # DBTITLE 1,返品ポリシーを取得する関数のテスト
 # MAGIC %sql
-# MAGIC select * from IDENTIFIER(:catalog_name || '.' || :schema_name || '.get_return_policy')()
+# MAGIC select * from IDENTIFIER(:catalog_name || '.' || :user_schema_name || '.get_return_policy')()
 
 # COMMAND ----------
 
@@ -165,7 +176,7 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog_name}.{schema_name}")
 # DBTITLE 1,名前に基づいてuserIDを取得する関数の作成
 # MAGIC %sql
 # MAGIC CREATE OR REPLACE FUNCTION
-# MAGIC   IDENTIFIER(:catalog_name || '.' || :schema_name || '.get_user_id')(user_name STRING)
+# MAGIC   IDENTIFIER(:catalog_name || '.' || :user_schema_name || '.get_user_id')(user_name STRING)
 # MAGIC RETURNS STRING
 # MAGIC COMMENT 'これは顧客の名前を入力として受け取り、対応するユーザーIDを返します'
 # MAGIC LANGUAGE SQL
@@ -182,7 +193,7 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog_name}.{schema_name}")
 # MAGIC %sql
 # MAGIC
 # MAGIC --新たなパラメータ構文 (MLR > 15.1)
-# MAGIC select IDENTIFIER(:catalog_name || '.' || :schema_name || '.get_user_id')('Nicolas Pelaez');
+# MAGIC select IDENTIFIER(:catalog_name || '.' || :user_schema_name || '.get_user_id')('Nicolas Pelaez');
 
 # COMMAND ----------
 
@@ -200,7 +211,7 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog_name}.{schema_name}")
 # DBTITLE 1,userIDに基づいて注文履歴を取得する関数の作成
 # MAGIC %sql
 # MAGIC CREATE OR REPLACE FUNCTION
-# MAGIC   IDENTIFIER(:catalog_name || '.' || :schema_name || '.get_order_history')(user_id STRING)
+# MAGIC   IDENTIFIER(:catalog_name || '.' || :user_schema_name || '.get_order_history')(user_id STRING)
 # MAGIC RETURNS TABLE (returns_last_12_months INT, issue_category STRING)
 # MAGIC COMMENT 'これは顧客のuser_idを入力として受け取り、過去12か月間の返品数と問題カテゴリを返します'
 # MAGIC LANGUAGE SQL
@@ -214,7 +225,7 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog_name}.{schema_name}")
 
 # DBTITLE 1,userIDに基づいて注文履歴を取得する関数のテスト
 # MAGIC %sql
-# MAGIC select * from IDENTIFIER(:catalog_name || '.' || :schema_name || '.get_order_history')('453e50e0-232e-44ea-9fe3-28d550be6294')
+# MAGIC select * from IDENTIFIER(:catalog_name || '.' || :user_schema_name || '.get_order_history')('453e50e0-232e-44ea-9fe3-28d550be6294')
 
 # COMMAND ----------
 
@@ -255,7 +266,7 @@ from unitycatalog.ai.core.databricks import DatabricksFunctionClient
 client = DatabricksFunctionClient()
 
 # このツールをUCにデプロイし、ツールのdocstringと型ヒントに基づいてUCのメタデータを自動的に設定します
-python_tool_uc_info = client.create_python_function(func=get_todays_date, catalog=catalog_name, schema=schema_name, replace=True)
+python_tool_uc_info = client.create_python_function(func=get_todays_date, catalog=catalog_name, schema=user_schema_name, replace=True)
 
 # ツールはUC内の `{catalog}.{schema}.{func}` という名前の関数にデプロイされます。ここで {func} は関数の名前です
 # デプロイされたUnity Catalog関数名を表示します
@@ -270,7 +281,7 @@ from IPython.display import display, HTML
 workspace_url = spark.conf.get('spark.databricks.workspaceUrl')
 
 # 作成した関数へのHTMLリンクを作成
-html_link = f'<a href="https://{workspace_url}/explore/data/functions/{catalog_name}/{schema_name}/get_todays_date" target="_blank">登録済み関数をUnity Catalogで確認</a>'
+html_link = f'<a href="https://{workspace_url}/explore/data/functions/{catalog_name}/{user_schema_name}/get_todays_date" target="_blank">登録済み関数をUnity Catalogで確認</a>'
 display(HTML(html_link))
 
 # COMMAND ----------
