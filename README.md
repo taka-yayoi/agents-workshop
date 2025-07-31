@@ -20,6 +20,7 @@
   - Databricks AI PlaygroundでSQL/Pythonツールと大規模言語モデル（LLM）を組み合わせます。  
   - モデル: Claude 3.7 Sonnet
 
+
 #### 1.3 エージェントのテスト [AI Playground]
 - **システムプロンプト**: すべての会社方針が満たされるまでツールを呼び出してください。
 - **質問例**: 当社の方針に基づき、キュー内の最新の返品を受け付けるべきですか？
@@ -45,7 +46,7 @@
 #### 2.2 評価用データセットの定義
 - **提供データセットの利用**  
   - サンプル評価データセットを活用し、エージェントが製品の質問に答える能力をテストします。  
-  - （オプション）[合成データ生成](https://www.databricks.com/blog/streamline-ai-agent-evaluation-with-new-synthetic-data-capabilities)も試してみましょう。
+  - （オプション）[合成データ生成](https://www.databricks.com/jp/blog/streamline-ai-agent-evaluation-with-new-synthetic-data-capabilities)も試してみましょう。
 
 #### 2.3 エージェントの評価
 - **`MLflow.evaluate()`の実行** 
