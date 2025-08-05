@@ -1,10 +1,5 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC サーバレス
-
-# COMMAND ----------
-
-# MAGIC %md
 # MAGIC # ハンズオンラボ：Databricksでエージェントシステムを構築する
 # MAGIC
 # MAGIC ## パート2 - エージェント評価
@@ -18,7 +13,7 @@
 # MAGIC - **リトリーバー関数の作成**：リトリーバーのプロパティを定義し、LLMから呼び出せるようにパッケージ化します。
 # MAGIC
 # MAGIC ### 2.2 評価データセットの作成
-# MAGIC - サンプルの評価データセットを用意していますが、[合成的に生成](https://www.databricks.com/blog/streamline-ai-agent-evaluation-with-new-synthetic-data-capabilities)することも可能です。
+# MAGIC - サンプルの評価データセットを用意していますが、[合成的に生成](https://www.databricks.com/jp/blog/streamline-ai-agent-evaluation-with-new-synthetic-data-capabilities)することも可能です。
 # MAGIC
 # MAGIC ### 2.3 MLflow.evaluate() の実行
 # MAGIC - MLflowは評価データセットを使ってエージェントの応答をテストします
@@ -35,10 +30,63 @@
 
 # COMMAND ----------
 
+# MAGIC %run ../config
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 環境変数を通じたエージェントの設定
+# MAGIC
+# MAGIC 環境変数から`agent.py`のパラメータを設定します。
+
+# COMMAND ----------
+
+from databricks.sdk import WorkspaceClient
+import os
+import re
+
+# ワークスペースクライアントを使用して現在のユーザーに関する情報を取得
+w = WorkspaceClient()
+user_email = w.current_user.me().emails[0].value
+username = user_email.split('@')[0]
+username = re.sub(r'[^a-zA-Z0-9_]', '_', username) # 特殊文字をアンダースコアに置換
+
+# スキーマを指定します
+user_schema_name = f"agents_lab_{username}" # ユーザーごとのスキーマ
+
+# COMMAND ----------
+
+# LLMエンドポイント名
+os.environ["LLM_ENDPOINT_NAME"] = "databricks-claude-3-7-sonnet"
+
+# UC関数ツール
+os.environ["UC_TOOL_NAMES"] = f"{catalog_name}.{user_schema_name}.*"
+
+# Vector Search名
+os.environ["VS_NAME"] = f"{catalog_name}.{system_schema_name}.product_docs_index"
+
+print("環境変数を設定しました:")
+print(f"LLM_ENDPOINT_NAME: {os.environ.get('LLM_ENDPOINT_NAME')}")
+print(f"UC_TOOL_NAMES: {os.environ.get('UC_TOOL_NAMES')}")
+print(f"VS_NAME: {os.environ.get('VS_NAME')}")
+
+# COMMAND ----------
+
 # DBTITLE 1,エージェントが動作することを確認するためのクイックなテスト
 from agent import AGENT
 
 AGENT.predict({"messages": [{"role": "user", "content": "Soundwave X5 Pro ヘッドフォンのトラブルシューティングのコツを教えてください。"}]})
+
+# COMMAND ----------
+
+AGENT.predict({"messages": [{"role": "user", "content": "今日の日付は"}]})
+
+# COMMAND ----------
+
+from IPython.display import Image, display
+
+# エージェントのグラフ構造を可視化
+display(Image(AGENT.agent.get_graph().draw_mermaid_png()))
 
 # COMMAND ----------
 
@@ -101,7 +149,7 @@ def predict_wrapper(query):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## エージェントを[エージェント評価](https://docs.databricks.com/generative-ai/agent-evaluation/index.html)で評価する
+# MAGIC ## エージェントを[エージェント評価](https://docs.databricks.com/aws/ja/generative-ai/agent-evaluation)で評価する
 # MAGIC
 # MAGIC 評価データセットのリクエストや期待される応答を編集し、エージェントを反復しながら評価を実行し、mlflowを活用して計算された品質指標を追跡できます。
 
@@ -142,6 +190,7 @@ data = {
 }
 
 eval_dataset = pd.DataFrame(data)
+display(eval_dataset)
 
 # COMMAND ----------
 
@@ -165,8 +214,8 @@ for request, facts in zip(data["request"], data["expected_facts"]):
 scorers = [
     Guidelines(
         guidelines="""応答にはすべての期待される事実が含まれている必要があります:
-        - 関連する場合はすべての色やサイズを列挙する（部分的なリストは不可）
-        - 関連する場合は正確な仕様を記載する（例:「5 ATM」など曖昧な表現は不可）
+        - 該当する場合はすべての色やサイズを列挙する（部分的なリストは不可）
+        - 該当する場合は正確な仕様を記載する（例:「5 ATM」など曖昧な表現は不可）
         - 掃除手順を尋ねられた場合はすべての手順を含める
         いずれかの事実が欠落または誤っている場合は不合格とする。""",
         name="completeness_and_accuracy",
@@ -206,6 +255,41 @@ with mlflow.start_run():
 
 # COMMAND ----------
 
+with mlflow.start_run():
+    logged_agent_info = mlflow.pyfunc.log_model(
+        name="agent",
+        python_model="agent.py",
+        input_example=input_example,
+        resources=resources,
+        extra_pip_requirements=[
+            "databricks-connect"
+        ]
+    )
+
+# モデルをロードし、予測関数を作成
+logged_model_uri = f"runs:/{logged_agent_info.run_id}/agent"
+loaded_model = mlflow.pyfunc.load_model(logged_model_uri)
+
+def predict_wrapper(query):
+    # チャット形式モデル用の入力を整形
+    model_input = {
+        "messages": [{"role": "user", "content": query}]
+    }
+    response = loaded_model.predict(model_input)
+    
+    messages = response['messages']
+    return messages[-1]['content']
+  
+print("評価を実行中...")
+with mlflow.start_run():
+    results = mlflow.genai.evaluate(
+        data=eval_data,
+        predict_fn=predict_wrapper, 
+        scorers=scorers,
+    )
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## モデルをUnity Catalogに登録する
 # MAGIC
@@ -213,28 +297,19 @@ with mlflow.start_run():
 
 # COMMAND ----------
 
-from databricks.sdk import WorkspaceClient
-import os
-
 mlflow.set_registry_uri("databricks-uc")
-
-# ワークスペースクライアントを使用して現在のユーザー情報を取得
-w = WorkspaceClient()
-user_email = w.current_user.me().display_name
-username = user_email.split("@")[0]
-
-# カタログとスキーマはラボ環境で自動作成済み
-#catalog_name = f"{username}"
-#schema_name = "agents"
-catalog_name = "takaakiyayoi_catalog"
-schema_name = "agents_lab"
 
 # UCモデル用のカタログ、スキーマ、モデル名を定義
 model_name = "product_agent"
-UC_MODEL_NAME = f"{catalog_name}.{schema_name}.{model_name}"
+UC_MODEL_NAME = f"{catalog_name}.{user_schema_name}.{model_name}"
 
 # モデルをUCに登録
 uc_registered_model_info = mlflow.register_model(model_uri=logged_agent_info.model_uri, name=UC_MODEL_NAME)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC モデルバージョンにアクセスし、**依存関係**タブでエージェントのリネージを確認してみましょう。
 
 # COMMAND ----------
 
@@ -244,7 +319,7 @@ from IPython.display import display, HTML
 workspace_url = spark.conf.get('spark.databricks.workspaceUrl')
 
 # 作成したエージェントへのHTMLリンクを作成
-html_link = f'<a href="https://{workspace_url}/explore/data/models/{catalog_name}/{schema_name}/product_agent" target="_blank">登録済みエージェントをUnity Catalogで表示</a>'
+html_link = f'<a href="https://{workspace_url}/explore/data/models/{catalog_name}/{user_schema_name}/product_agent" target="_blank">登録済みエージェントをUnity Catalogで表示</a>'
 display(HTML(html_link))
 
 # COMMAND ----------
@@ -252,13 +327,32 @@ display(HTML(html_link))
 # MAGIC %md
 # MAGIC ## エージェントのデプロイ
 # MAGIC
-# MAGIC ##### 注意: これはラボユーザーには無効ですが、自分のワークスペースでは機能します
+# MAGIC 上で使用した環境変数を設定してエージェントをモデルサービングエンドポイントにデプロイします。
 
 # COMMAND ----------
 
 from databricks import agents
 
-# モデルをレビューアプリおよびモデルサービングエンドポイントにデプロイ
+# 環境変数を辞書として定義
+environment_vars = {
+    "LLM_ENDPOINT_NAME": os.environ["LLM_ENDPOINT_NAME"],
+    "UC_TOOL_NAMES": os.environ["UC_TOOL_NAMES"],
+    "VS_NAME": os.environ["VS_NAME"],
+}
 
-# ラボ環境では無効化されていますが、すでにエージェントはデプロイ済みです！
-#agents.deploy(UC_MODEL_NAME, uc_registered_model_info.version, tags = {"endpointSource": "Agent Lab"})
+# モデルをレビューアプリおよびモデルサービングエンドポイントにデプロイ
+agents.deploy(
+    UC_MODEL_NAME,
+    uc_registered_model_info.version,
+    tags={"endpointSource": "Agent Lab"},
+    environment_vars=environment_vars,
+    timeout=900,  # 15分に延長
+)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 今後の方向性
+# MAGIC
+# MAGIC - 更なる[評価](https://docs.databricks.com/aws/ja/mlflow3/genai/getting-started/eval)と[監視](https://docs.databricks.com/aws/ja/mlflow3/genai/eval-monitor/)を通じた改善
+# MAGIC - [アプリ](https://docs.databricks.com/aws/ja/dev-tools/databricks-apps/get-started)との連携

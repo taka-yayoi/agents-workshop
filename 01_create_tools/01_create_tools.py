@@ -31,6 +31,10 @@ dbutils.widgets.removeAll()
 
 # COMMAND ----------
 
+# MAGIC %run ../config
+
+# COMMAND ----------
+
 # DBTITLE 1,パラメーター設定
 from databricks.sdk import WorkspaceClient
 import yaml
@@ -43,10 +47,8 @@ user_email = w.current_user.me().emails[0].value
 username = user_email.split('@')[0]
 username = re.sub(r'[^a-zA-Z0-9_]', '_', username) # 特殊文字をアンダースコアに置換
 
-# カタログとスキーマを指定します
-catalog_name = "handson_catalog"
-system_schema_name = "agents_lab" # データを格納しているスキーマ
-user_schema_name = f"agents_lab_{username}"
+# スキーマを指定します
+user_schema_name = f"agents_lab_{username}" # ユーザーごとのスキーマ
 
 print("あなたのカタログは:", catalog_name)
 print("あなたのスキーマは:", user_schema_name)
@@ -292,7 +294,7 @@ display(HTML(html_link))
 # MAGIC - **システムプロンプト**：`すべての社内ポリシーが満たされていると確信できるまで、ツールを呼び出すこと`
 # MAGIC - **質問例**：`当社のポリシーに基づいて、最新の返品を受け付けるべきでしょうか？`
 # MAGIC
-# MAGIC ### AIプレイグラウンドは、左のナビゲーションバーの「機械学習」から見つけることができます。または、以下に作成されたリンクを使用することもできます。
+# MAGIC ### AIプレイグラウンドは、左のナビゲーションバーの「AI/ML」から見つけることができます。または、以下に作成されたリンクを使用することもできます。
 
 # COMMAND ----------
 
